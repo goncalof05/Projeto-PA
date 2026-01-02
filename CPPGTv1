@@ -1,0 +1,305 @@
+import csv
+import os
+from datetime import datetime
+
+# =================================================================
+# CONFIGURAÇÕES E CAMINHOS DE FICHEIROS
+# =================================================================
+CATALOGO_FILE = "catalogo.csv"
+MOVIMENTOS_FILE = "movimentos.csv"
+PEDIDOS_FILE = "pedidos.csv"
+EVENTOS_FILE = "eventos.csv"
+AVALIACOES_FILE = "avaliacoes.csv"
+RECLAMACOES_FILE = "reclamacoes.csv" # Novo ficheiro para interoperabilidade
+
+# =================================================================
+# FUNÇÕES DE PERSISTÊNCIA DE DADOS (DATABASE LAYER)
+# =================================================================
+
+def inicializar_sistema():
+    """Garante que todos os ficheiros CSV existem com os cabeçalhos corretos."""
+    estruturas = {
+        CATALOGO_FILE: ['idItem', 'tipo', 'nome', 'categoria', 'preco', 'stock', 'ativo'],
+        MOVIMENTOS_FILE: ['idItem', 'tipo', 'quantidade', 'data', 'motivo'],
+        PEDIDOS_FILE: ['idPedido', 'cliente', 'dataHora', 'estado', 'total', 'origem', 'destino', 'zona', 'estafeta'],
+        EVENTOS_FILE: ['idEvento', 'idPedido', 'estafeta', 'estado', 'timestamp', 'localizacao', 'descricao'],
+        AVALIACOES_FILE: ['idPedido', 'cliente', 'rating', 'comentario', 'data'],
+        RECLAMACOES_FILE: ['idReclamacao', 'idPedido', 'cliente', 'tipologia', 'texto', 'data']
+    }
+    for ficheiro, colunas in estruturas.items():
+        if not os.path.exists(ficheiro):
+            with open(ficheiro, 'w', newline='', encoding='utf-8') as f:
+                csv.writer(f).writerow(colunas)
+
+def carregar_dados(ficheiro):
+    dados = []
+    if os.path.exists(ficheiro):
+        with open(ficheiro, 'r', encoding='utf-8') as f:
+            reader = csv.DictReader(f)
+            for linha in reader:
+                dados.append(linha)
+    return dados
+
+def salvar_dados(ficheiro, dados, colunas):
+    with open(ficheiro, 'w', newline='', encoding='utf-8') as f:
+        writer = csv.DictWriter(f, fieldnames=colunas)
+        writer.writeheader()
+        writer.writerows(dados)
+
+# =================================================================
+# SISTEMA DE NOTIFICAÇÕES (LÓGICA TEMPORAL)
+# =================================================================
+
+def verificar_notificacoes(cliente):
+    """Analisa datas e estados para notificar o cliente."""
+    pedidos = [p for p in carregar_dados(PEDIDOS_FILE) if p['cliente'] == cliente]
+    agora = datetime.now()
+    
+    print("\n--- CENTRAL DE NOTIFICAÇÕES ---")
+    if not pedidos:
+        print("Sem notificações.")
+        return
+
+    for p in pedidos:
+        # Tenta converter a data para cálculo, se falhar ignora
+        try:
+            data_p = datetime.strptime(p['dataHora'], "%d/%m/%Y %H:%M")
+            horas_passadas = (agora - data_p).total_seconds() / 3600
+            
+            if p['estado'] == 'aprovada' and horas_passadas > 24:
+                print(f"[ALERTA] Pedido #{p['idPedido']} sem atualização há mais de 24h!")
+            elif p['estado'] == 'em distribuição':
+                print(f"[INFO] Encomenda #{p['idPedido']} está na carrinha de {p['estafeta']}.")
+            elif p['estado'] == 'entregue':
+                print(f"[SUCESSO] Pedido #{p['idPedido']} entregue. Avalie-nos!")
+        except:
+            continue
+
+# =================================================================
+# MÓDULO 1: PORTAL DO GESTOR
+# =================================================================
+
+def menu_gestor():
+    while True:
+        print("\n" + "="*40)
+        print("      PAINEL DE CONTROLO GESTOR")
+        print("="*40)
+        print("1. Gerir Inventário (Adicionar)")
+        print("2. Visualizar Todos os Pedidos")
+        print("3. Estatísticas e Picos Horários")
+        print("4. Ver Reclamações")
+        print("0. Voltar ao Menu Principal")
+        
+        opcao = input("\nSelecione uma operação: ")
+        
+        if opcao == '1': gerir_inventario()
+        elif opcao == '2': listar_pedidos_geral()
+        elif opcao == '3': mostrar_estatisticas_avancadas()
+        elif opcao == '4': 
+            for r in carregar_dados(RECLAMACOES_FILE):
+                print(f"ID:{r['idReclamacao']} | Pedido:{r['idPedido']} | Tipo:{r['tipologia']} | MSG:{r['texto']}")
+        elif opcao == '0': break
+
+def mostrar_estatisticas_avancadas():
+    pedidos = carregar_dados(PEDIDOS_FILE)
+    if not pedidos: return print("Sem dados.")
+
+    # Contabilizar entregas por períodos horários
+    picos = {"Manhã (08-12h)": 0, "Tarde (12-18h)": 0, "Noite (18-23h)": 0}
+    
+    for p in pedidos:
+        try:
+            hora = datetime.strptime(p['dataHora'], "%d/%m/%Y %H:%M").hour
+            if 8 <= hora < 12: picos["Manhã (08-12h)"] += 1
+            elif 12 <= hora < 18: picos["Tarde (12-18h)"] += 1
+            elif 18 <= hora <= 23: picos["Noite (18-23h)"] += 1
+        except: continue
+
+    print("\n--- ANÁLISE DE PICOS HORÁRIOS ---")
+    for periodo, total in picos.items():
+        print(f"{periodo}: {total} encomendas registadas")
+
+def gerir_inventario():
+    catalogo = carregar_dados(CATALOGO_FILE)
+    print("\n--- ADICIONAR NOVO ITEM ---")
+    try:
+        novo_item = {
+            'idItem': len(catalogo) + 1,
+            'tipo': input("Tipo (Material/Serviço): "),
+            'nome': input("Nome: "),
+            'categoria': input("Categoria: "),
+            'preco': float(input("Preço Unitário: ")),
+            'stock': int(input("Stock Inicial: ")),
+            'ativo': "true"
+        }
+        catalogo.append(novo_item)
+        salvar_dados(CATALOGO_FILE, catalogo, ['idItem', 'tipo', 'nome', 'categoria', 'preco', 'stock', 'ativo'])
+        print("Item adicionado com sucesso!")
+    except ValueError:
+        print("Erro: Preço e Stock devem ser números!")
+
+def listar_pedidos_geral():
+    pedidos = carregar_dados(PEDIDOS_FILE)
+    print(f"\n{'ID':<5} {'Cliente':<15} {'Estado':<15} {'Estafeta':<15} {'Total':<10}")
+    print("-" * 70)
+    for p in pedidos:
+        print(f"{p['idPedido']:<5} {p['cliente']:<15} {p['estado']:<15} {p['estafeta']:<15} {p['total']:<10}€")
+
+# =================================================================
+# MÓDULO 2: PORTAL DO CLIENTE
+# =================================================================
+
+def menu_cliente():
+    nome = input("\nIdentifique-se para entrar: ")
+    verificar_notificacoes(nome) # CHAMADA DAS NOTIFICAÇÕES
+    while True:
+        print(f"\n>>> BEM-VINDO, {nome.upper()} <<<")
+        print("1. Consultar Catálogo e Fazer Pedido")
+        print("2. Acompanhar as minhas Encomendas")
+        print("3. Avaliar um Serviço Concluído")
+        print("4. Registar Reclamação")
+        print("0. Sair")
+        
+        op = input("Opção: ")
+        if op == '1': fazer_pedido(nome)
+        elif op == '2': acompanhar_pedidos(nome)
+        elif op == '3': avaliar_servico(nome)
+        elif op == '4': registar_reclamacao(nome)
+        elif op == '0': break
+
+def fazer_pedido(cliente):
+    catalogo = carregar_dados(CATALOGO_FILE)
+    itens_ativos = [i for i in catalogo if i['ativo'] == 'true']
+    
+    if not itens_ativos:
+        print("O catálogo está vazio.")
+        return
+
+    print("\n--- CATÁLOGO DISPONÍVEL ---")
+    for i in itens_ativos:
+        print(f"[{i['idItem']}] {i['nome']} - {i['preco']}€ (Stock: {i['stock']})")
+    
+    total = 0
+    zona = input("\nEscolha a Zona (N/C/S): ").upper()
+    estafetas = {'N': 'Estafeta_Norte', 'C': 'Estafeta_Centro', 'S': 'Estafeta_Sul'}
+    
+    if zona not in estafetas: return print("Zona inválida.")
+
+    while True:
+        escolha = input("\nID do produto (ou 'fim' para concluir): ")
+        if escolha.lower() == 'fim': break
+        
+        item = next((i for i in itens_ativos if i['idItem'] == escolha), None)
+        if item and int(item['stock']) > 0:
+            try:
+                qtd = int(input(f"Quantidade de {item['nome']}: "))
+                if qtd <= int(item['stock']):
+                    item['stock'] = str(int(item['stock']) - qtd)
+                    total += (float(item['preco']) * qtd)
+                    print(f"Adicionado: {qtd}x {item['nome']}")
+                else: print("Stock insuficiente!")
+            except ValueError: print("Insira um número.")
+        else: print("Item não disponível.")
+
+    if total > 0:
+        pedidos = carregar_dados(PEDIDOS_FILE)
+        id_p = len(pedidos) + 1
+        novo_p = {
+            'idPedido': id_p, 'cliente': cliente, 'dataHora': datetime.now().strftime("%d/%m/%Y %H:%M"),
+            'estado': 'aprovada', 'total': total, 'origem': 'Loja Central',
+            'destino': input("Morada de Destino: "), 'zona': zona, 'estafeta': estafetas[zona]
+        }
+        pedidos.append(novo_p)
+        salvar_dados(PEDIDOS_FILE, pedidos, ['idPedido', 'cliente', 'dataHora', 'estado', 'total', 'origem', 'destino', 'zona', 'estafeta'])
+        salvar_dados(CATALOGO_FILE, catalogo, ['idItem', 'tipo', 'nome', 'categoria', 'preco', 'stock', 'ativo'])
+        print(f"\nPedido #{id_p} registado!")
+
+def acompanhar_pedidos(cliente):
+    pedidos = [p for p in carregar_dados(PEDIDOS_FILE) if p['cliente'] == cliente]
+    if not pedidos: return print("Sem encomendas.")
+    print(f"\n{'ID':<5} {'Data':<20} {'Estado':<15}")
+    for p in pedidos: print(f"{p['idPedido']:<5} {p['dataHora']:<20} {p['estado']:<15}")
+
+def avaliar_servico(cliente):
+    pedidos = [p for p in carregar_dados(PEDIDOS_FILE) if p['cliente'] == cliente and p['estado'] == 'entregue']
+    if not pedidos: return print("Sem pedidos entregues para avaliar.")
+    id_aval = input("ID do pedido a avaliar: ")
+    rating = input("Rating (1-5): ")
+    coment = input("Comentário: ")
+    avals = carregar_dados(AVALIACOES_FILE)
+    avals.append({'idPedido': id_aval, 'cliente': cliente, 'rating': rating, 'comentario': coment, 'data': datetime.now().strftime("%Y-%m-%d")})
+    salvar_dados(AVALIACOES_FILE, avals, ['idPedido', 'cliente', 'rating', 'comentario', 'data'])
+    print("Avaliação guardada!")
+
+def registar_reclamacao(cliente):
+    print("\n--- REGISTO DE RECLAMAÇÃO ---")
+    id_p = input("ID do Pedido: ")
+    print("Tipologia: 1-Atraso | 2-Dano | 3-Estafeta | 4-Outro")
+    tipo_idx = input("Escolha: ")
+    tipos = {"1": "Atraso", "2": "Dano", "3": "Estafeta", "4": "Outro"}
+    texto = input("Descreva o problema: ")
+    
+    reclamacoes = carregar_dados(RECLAMACOES_FILE)
+    reclamacoes.append({
+        'idReclamacao': len(reclamacoes) + 1, 'idPedido': id_p, 'cliente': cliente,
+        'tipologia': tipos.get(tipo_idx, "Geral"), 'texto': texto, 'data': datetime.now().strftime("%d/%m/%Y")
+    })
+    salvar_dados(RECLAMACOES_FILE, reclamacoes, ['idReclamacao', 'idPedido', 'cliente', 'tipologia', 'texto', 'data'])
+    print("Reclamação submetida.")
+
+# =================================================================
+# MÓDULO 3: PORTAL DO ESTAFETA
+# =================================================================
+
+def menu_estafeta():
+    print("\nIdentificação (N/C/S):")
+    zona_ref = input().upper()
+    estafeta_nome = f"Estafeta_{'Norte' if zona_ref=='N' else 'Centro' if zona_ref=='C' else 'Sul'}"
+    while True:
+        print(f"\n--- TERMINAL: {estafeta_nome} ---")
+        print("1. Minhas Entregas Pendentes")
+        print("2. Atualizar Estado")
+        print("0. Voltar")
+        op = input("Opção: ")
+        if op == '1':
+            pedidos = [p for p in carregar_dados(PEDIDOS_FILE) if p['estafeta'] == estafeta_nome and p['estado'] not in ['entregue', 'falhada']]
+            for p in pedidos: print(f"ID: {p['idPedido']} | Destino: {p['destino']} | Total: {p['total']}€")
+        elif op == '2': atualizar_tracking(estafeta_nome)
+        elif op == '0': break
+
+def atualizar_tracking(estafeta):
+    id_p = input("ID do Pedido: ")
+    novo_estado = input("Novo Estado (em distribuição / entregue / falhada): ")
+    loc = input("Localização: ")
+    eventos = carregar_dados(EVENTOS_FILE)
+    eventos.append({'idEvento': len(eventos)+1, 'idPedido': id_p, 'estafeta': estafeta, 'estado': novo_estado, 'timestamp': datetime.now().strftime("%H:%M:%S"), 'localizacao': loc, 'descricao': "Manutenção"})
+    salvar_dados(EVENTOS_FILE, eventos, ['idEvento', 'idPedido', 'estafeta', 'estado', 'timestamp', 'localizacao', 'descricao'])
+    pedidos = carregar_dados(PEDIDOS_FILE)
+    for p in pedidos:
+        if p['idPedido'] == id_p: p['estado'] = novo_estado
+    salvar_dados(PEDIDOS_FILE, pedidos, ['idPedido', 'cliente', 'dataHora', 'estado', 'total', 'origem', 'destino', 'zona', 'estafeta'])
+    print("Estado atualizado!")
+
+# =================================================================
+# MAIN
+# =================================================================
+
+def main():
+    inicializar_sistema()
+    while True:
+        print("\n" + "#"*45)
+        print("#" + " "*10 + "SEND2YOU - DELIVERY SYSTEM" + " "*9 + "#")
+        print("#"*45)
+        print("1. [Módulo Gestor]")
+        print("2. [Módulo Cliente]")
+        print("3. [Módulo Estafeta]")
+        print("0. Sair")
+        
+        perfil = input("\nEscolha o portal: ")
+        if perfil == '1': menu_gestor()
+        elif perfil == '2': menu_cliente()
+        elif perfil == '3': menu_estafeta()
+        elif perfil == '0': break
+
+if __name__ == "__main__":
+    main()

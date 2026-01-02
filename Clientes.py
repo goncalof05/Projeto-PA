@@ -1,3 +1,4 @@
+
 def calcTotal(orderMaterialQtd, materialPrice):
     total = 0
     for i in range(0, len(orderMaterialQtd) - 1 + 1, 1):
