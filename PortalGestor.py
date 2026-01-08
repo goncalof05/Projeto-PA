@@ -141,6 +141,23 @@ def mostrar_indicadores(catalogo):
     
     print("="*60 + "\n")
 
+
+def estatistica_por_estado(pedidos_file=PEDIDOS_FILE):
+    """
+    Placeholder: calcular estatísticas por estado a partir de `pedidos.csv`.
+    Deve devolver um dicionário {estado: contagem}.
+    Implementar leitura de CSV e agregação dos estados.
+    """
+    pass
+
+
+def alertas_stock_baixo(catalogo, limite=50):
+    """
+    Placeholder: gerar lista de itens com stock abaixo de `limite`.
+    Deve devolver uma lista de dicionários/tuplas com (idItem, nome, stock).
+    """
+    pass
+
 # Create order
 def criar_encomenda(catalogo):
     exibir_catalogo([item for item in catalogo if item['ativo']])

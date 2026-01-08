@@ -46,6 +46,17 @@ def salvar_dados(ficheiro, dados, colunas):
         writer.writeheader()
         writer.writerows(dados)
 
+def transicao_valida(estado_atual, novo_estado):
+    transicoes = {
+        'pendente': ['aprovada', 'rejeitado'],
+        'aprovada': ['atribuida'],
+        'atribuida': ['em distribuição', 'em execução'],
+        'em distribuição': ['entregue', 'falhada'],
+        'em execução': ['concluida', 'falhada']
+    }
+    return novo_estado in transicoes.get(estado_atual, [])
+
+
 # =================================================================
 # SISTEMA DE NOTIFICAÇÕES (LÓGICA TEMPORAL)
 # =================================================================
@@ -81,24 +92,751 @@ def verificar_notificacoes(cliente):
 
 def menu_gestor():
     while True:
-        print("\n" + "="*40)
-        print("      PAINEL DE CONTROLO GESTOR")
-        print("="*40)
-        print("1. Gerir Inventário (Adicionar)")
-        print("2. Visualizar Todos os Pedidos")
-        print("3. Estatísticas e Picos Horários")
-        print("4. Ver Reclamações")
+        print("\n" + "=" * 45)
+        print("        PAINEL DE CONTROLO - GESTOR")
+        print("=" * 45)
+        print("1. Gestão de Catálogo")
+        print("2. Gestão de Pedidos")
+        print("3. Catalogo")
+        print("4. Estatisticas")
         print("0. Voltar ao Menu Principal")
-        
-        opcao = input("\nSelecione uma operação: ")
-        
-        if opcao == '1': gerir_inventario()
-        elif opcao == '2': listar_pedidos_geral()
-        elif opcao == '3': mostrar_estatisticas_avancadas()
-        elif opcao == '4': 
-            for r in carregar_dados(RECLAMACOES_FILE):
-                print(f"ID:{r['idReclamacao']} | Pedido:{r['idPedido']} | Tipo:{r['tipologia']} | MSG:{r['texto']}")
-        elif opcao == '0': break
+
+        opcao = input("\nEscolha uma opção: ").strip()
+
+        if opcao == '1':
+            submenu_catalogo()
+        elif opcao == '2':
+            submenu_pedidos()
+        elif opcao == '3':
+            submenu_Consultar()
+        elif opcao == '4':
+            submenu_estatisticas()
+        elif opcao == '0':
+            break
+        else:
+            print("Opção inválida.")
+
+def submenu_estatisticas():
+    while True:
+        print("\n--- ESTATÍSTICAS DO SISTEMA ---")
+        print("1. Pedidos por Estado")
+        print("2. Taxa de Sucesso")
+        print("3. Stock Baixo")
+        print("4. Itens/Serviços Mais Requisitados")
+        print("0. Voltar")
+
+        op = input("Opção: ").strip()
+
+        if op == '1':
+            estatisticas_pedidos_por_estado()
+        elif op == '2':
+            taxa_sucesso()
+        elif op == '3':
+            alertas_stock_baixo()
+        elif op == '4':
+            itens_mais_requisitados()
+        elif op == '0':
+            break
+        else:
+            print("Opção inválida.")
+
+
+def estatisticas_pedidos_por_estado():
+    pedidos = carregar_dados(PEDIDOS_FILE)
+    estados = {}
+
+    for p in pedidos:
+        estado = p['estado']
+        estados[estado] = estados.get(estado, 0) + 1
+
+    print("\n--- PEDIDOS POR ESTADO ---")
+    for e, total in estados.items():
+        print(f"{e}: {total}")
+
+def taxa_sucesso():
+    pedidos = carregar_dados(PEDIDOS_FILE)
+
+    total = len(pedidos)
+    entregues = sum(1 for p in pedidos if p['estado'] == 'entregue')
+
+    if total == 0:
+        print("Sem pedidos.")
+        return
+
+    taxa = (entregues / total) * 100
+
+    print("\n--- TAXA DE SUCESSO ---")
+    print(f"Pedidos entregues: {entregues}")
+    print(f"Total de pedidos: {total}")
+    print(f"Taxa de sucesso: {taxa:.2f}%")
+
+def alertas_stock_baixo():
+    catalogo = carregar_dados(CATALOGO_FILE)
+
+    print("\n--- ALERTA DE STOCK BAIXO ---")
+    baixo = False
+
+    for item in catalogo:
+        if item['ativo'] == 'true' and int(item['stock']) <= 5:
+            print(f"{item['nome']} | Stock: {item['stock']}")
+            baixo = True
+
+    if not baixo:
+        print("Nenhum item com stock baixo.")
+
+def itens_mais_requisitados():
+    catalogo = carregar_dados(CATALOGO_FILE)
+    pedidos = carregar_dados(PEDIDOS_FILE)
+
+    tipos = {'Material': 0, 'Serviço': 0}
+
+    for p in pedidos:
+        if p['estado'] in ['aprovada', 'entregue']:
+            for item in catalogo:
+                if item['ativo'] == 'true':
+                    tipos[item['tipo']] += 1
+
+    print("\n--- ITENS / SERVIÇOS MAIS REQUISITADOS ---")
+    for t, total in tipos.items():
+        print(f"{t}: {total} pedidos")
+
+
+def submenu_catalogo():
+    while True:
+        print("\n--- GESTÃO DE CATÁLOGO ---")
+        print("1. Adicionar Produto/Serviço")
+        print("2. Atualizar Preço de um Item")
+        print("3. Atualizar Stock de um Item")
+        print("4. Ativar / Desativar Item")
+        print("5. Listar Catálogo")
+        print("6. Eliminar Item (Definitivo)")
+        print("0. Voltar")
+
+        op = input("Opção: ").strip()
+
+        if op == '1':
+            adicionar_item_catalogo()
+        elif op == '2':
+            atualizar_preco_item()
+        elif op == '3':
+            atualizar_stock_item()
+        elif op == '4':
+            ativar_desativar_item()
+        elif op == '5':
+            listar_catalogo()
+        elif op == '6':
+            eliminar_item_definitivo()
+        elif op == '0':
+            break
+        else:
+            print("Opção inválida.")
+
+def submenu_pedidos():
+    while True:
+        print("\n--- GESTÃO DE PEDIDOS ---")
+        print("1. Listar Todos os Pedidos")
+        print("2. Aprovar / Rejeitar Pedido")
+        print("3. Atribuir Estafeta")
+        print("4. Ver Reclamações")
+        print("5. Consultar Clientes e Estafetas por Zona")  # 👈 PONTO 8
+        print("0. Voltar")
+
+        op = input("Opção: ").strip()
+
+        if op == '1':
+            listar_pedidos_geral()
+        elif op == '2':
+            aprovar_rejeitar_pedido()
+        elif op == '3':
+            atribuir_estafeta()
+        elif op == '4':
+            ver_reclamacoes()
+        elif op == '5':
+            consultar_por_zona()   # 👈 NOVA FUNÇÃO
+        elif op == '0':
+            break
+        else:
+            print("Opção inválida.")
+
+def consultar_por_zona():
+    pedidos = carregar_dados(PEDIDOS_FILE)
+
+    if not pedidos:
+        print("Não existem pedidos registados.")
+        return
+
+    print("\nEscolha a zona:")
+    print("N - Norte")
+    print("C - Centro")
+    print("S - Sul")
+    zona = input("Zona: ").upper()
+
+    if zona not in ['N', 'C', 'S']:
+        print("Zona inválida.")
+        return
+
+    clientes = set()
+    estafetas = set()
+
+    for p in pedidos:
+        if p['zona'] == zona:
+            clientes.add(p['cliente'])
+            if p['estafeta']:
+                estafetas.add(p['estafeta'])
+
+    print(f"\n--- CLIENTES DA ZONA {zona} ---")
+    if clientes:
+        for c in clientes:
+            print(f"- {c}")
+    else:
+        print("Sem clientes registados nesta zona.")
+
+    print(f"\n--- ESTAFETAS DA ZONA {zona} ---")
+    if estafetas:
+        for e in estafetas:
+            print(f"- {e}")
+    else:
+        print("Sem estafetas atribuídos nesta zona.")
+
+
+def validar_zona(zona):
+    return zona in ['N', 'C', 'S']
+
+def validar_stock_catalogo():
+    catalogo = carregar_dados(CATALOGO_FILE)
+    for item in catalogo:
+        if item['ativo'] == 'true' and item['tipo'] == 'Material':
+            if int(item['stock']) > 0:
+                return True
+    return False
+
+
+
+def subtrair_stock_aprovacao():
+
+    catalogo = carregar_dados(CATALOGO_FILE)
+
+    for item in catalogo:
+        if item['ativo'] == 'true' and item['tipo'] == 'Material':
+            stock_atual = int(item['stock'])
+            if stock_atual > 0:
+                item['stock'] = str(stock_atual - 1)
+
+                salvar_dados(
+                    CATALOGO_FILE,
+                    catalogo,
+                    ['idItem', 'tipo', 'nome', 'categoria', 'preco', 'stock', 'ativo']
+                )
+                return True
+
+    return False
+
+def registar_evento(idPedido, estado, descricao, localizacao=""):
+    eventos = carregar_dados(EVENTOS_FILE)
+
+    eventos.append({
+        'idEvento': len(eventos) + 1,
+        'idPedido': idPedido,
+        'estafeta': '',
+        'estado': estado,
+        'timestamp': datetime.now().strftime("%d/%m/%Y %H:%M:%S"),
+        'localizacao': localizacao,
+        'descricao': descricao
+    })
+
+    salvar_dados(
+        EVENTOS_FILE,
+        eventos,
+        ['idEvento', 'idPedido', 'estafeta', 'estado',
+         'timestamp', 'localizacao', 'descricao']
+    )
+
+
+def aprovar_rejeitar_pedido():
+    pedidos = carregar_dados(PEDIDOS_FILE)
+
+    pendentes = [p for p in pedidos if p['estado'] == 'pendente']
+    if not pendentes:
+        print("Não existem pedidos pendentes.")
+        return
+
+    print("\n--- PEDIDOS PENDENTES ---")
+    for p in pendentes:
+        print(f"ID:{p['idPedido']} | Cliente:{p['cliente']} | Zona:{p['zona']}")
+
+    id_p = input("\nID do pedido a analisar: ").strip()
+
+    pedido = next((p for p in pedidos if p['idPedido'] == id_p), None)
+    if not pedido:
+        print("Pedido não encontrado.")
+        return
+
+    print("\n--- VALIDAÇÃO DO PEDIDO ---")
+
+    # 1️⃣ Zona
+    if not validar_zona(pedido['zona']):
+        pedido['estado'] = 'rejeitado'
+        print("Pedido rejeitado: zona não coberta.")
+
+        # 🔴 EVENTO (Ponto 7)
+        registar_evento(
+            pedido['idPedido'],
+            'rejeitado',
+            'Pedido rejeitado pelo gestor (zona não coberta)'
+        )
+
+    # 2️⃣ Stock (materiais)
+    elif not validar_stock_catalogo():
+        pedido['estado'] = 'rejeitado'
+        print("Pedido rejeitado: stock insuficiente.")
+
+        # 🔴 EVENTO (Ponto 7)
+        registar_evento(
+            pedido['idPedido'],
+            'rejeitado',
+            'Pedido rejeitado pelo gestor (stock insuficiente)'
+        )
+
+    # 3️⃣ Aprovação + reserva de stock
+    else:
+        sucesso = subtrair_stock_aprovacao()
+        if not sucesso:
+            pedido['estado'] = 'rejeitado'
+            print("Pedido rejeitado: não foi possível reservar stock.")
+
+            # 🔴 EVENTO (Ponto 7)
+            registar_evento(
+                pedido['idPedido'],
+                'rejeitado',
+                'Pedido rejeitado pelo gestor (falha na reserva de stock)'
+            )
+        else:
+            pedido['estado'] = 'aprovada'
+            print("Pedido aprovado e stock reservado com sucesso.")
+
+            # 🟢 EVENTO (Ponto 7)
+            registar_evento(
+                pedido['idPedido'],
+                'aprovada',
+                'Pedido aprovado pelo gestor'
+            )
+
+    salvar_dados(
+        PEDIDOS_FILE,
+        pedidos,
+        ['idPedido', 'cliente', 'dataHora', 'estado', 'total',
+         'origem', 'destino', 'zona', 'estafeta']
+    )
+
+
+def atribuir_estafeta():
+    pedidos = carregar_dados(PEDIDOS_FILE)
+
+    # Só pedidos aprovados e ainda sem estafeta
+    candidatos = [
+        p for p in pedidos
+        if p['estado'] == 'aprovada' and p['estafeta'] == ''
+    ]
+
+    if not candidatos:
+        print("Não existem pedidos aprovados sem estafeta.")
+        return
+
+    print("\n--- PEDIDOS PARA ATRIBUIÇÃO ---")
+    for p in candidatos:
+        print(f"ID:{p['idPedido']} | Cliente:{p['cliente']} | Zona:{p['zona']}")
+
+    id_p = input("\nID do pedido a atribuir: ").strip()
+
+    pedido = next((p for p in pedidos if p['idPedido'] == id_p), None)
+    if not pedido:
+        print("Pedido não encontrado.")
+        return
+
+    if pedido['estado'] != 'aprovada':
+        print("O pedido não está no estado 'aprovada'.")
+        return
+
+    # 📌 Estafeta fixo por zona
+    estafetas = {
+        'N': 'Estafeta_Norte',
+        'C': 'Estafeta_Centro',
+        'S': 'Estafeta_Sul'
+    }
+
+    estafeta = estafetas.get(pedido['zona'])
+    if not estafeta:
+        print("Zona inválida. Não foi possível atribuir estafeta.")
+        return
+
+    pedido['estafeta'] = estafeta
+    pedido['estado'] = 'atribuida'
+
+    salvar_dados(
+        PEDIDOS_FILE,
+        pedidos,
+        ['idPedido', 'cliente', 'dataHora', 'estado', 'total',
+         'origem', 'destino', 'zona', 'estafeta']
+    )
+
+    # 🟢 EVENTO (Ponto 7)
+    registar_evento(
+        pedido['idPedido'],
+        'atribuida',
+        f"Estafeta {estafeta} atribuído ao pedido"
+    )
+
+    print(f"Estafeta {estafeta} atribuído com sucesso ao pedido #{pedido['idPedido']}.")
+
+
+
+def ver_reclamacoes():
+    """
+    Permite ao gestor consultar reclamações submetidas pelos clientes.
+    """
+    reclamacoes = carregar_dados(RECLAMACOES_FILE)
+
+    if not reclamacoes:
+        print("Não existem reclamações.")
+        return
+
+    print("\n--- RECLAMAÇÕES REGISTADAS ---")
+    for r in reclamacoes:
+        print(f"ID:{r['idReclamacao']} | Pedido:{r['idPedido']} | "
+              f"Cliente:{r['cliente']} | Tipo:{r['tipologia']} | "
+              f"Data:{r['data']}")
+
+def submenu_Consultar():
+    while True:
+        print("\n--- RELATÓRIOS E INDICADORES ---")
+        print("1. Pedidos por Zona")
+        print("2. Pedidos por Período")
+        print("3. Catálogo por Tipo")
+        print("4. Catálogo por Categoria")
+        print("0. Voltar")
+
+        op = input("Opção: ").strip()
+
+        if op == '1':
+            pedidos_por_zona()
+        elif op == '2':
+            pedidos_por_periodo()
+        elif op == '3':
+            catalogo_por_tipo()
+        elif op == '4':
+            catalogo_por_categoria()
+        elif op == '0':
+            break
+        else:
+            print("Opção inválida.")
+
+def pedidos_por_zona():
+    pedidos = carregar_dados(PEDIDOS_FILE)
+
+    zonas = {'N': 0, 'C': 0, 'S': 0}
+
+    for p in pedidos:
+        if p['zona'] in zonas:
+            zonas[p['zona']] += 1
+
+    print("\n--- PEDIDOS POR ZONA ---")
+    for z, total in zonas.items():
+        print(f"Zona {z}: {total} pedidos")
+
+def pedidos_por_periodo():
+    pedidos = carregar_dados(PEDIDOS_FILE)
+    contagem = {}
+
+    for p in pedidos:
+        try:
+            data = datetime.strptime(p['dataHora'], "%d/%m/%Y %H:%M")
+            chave = f"{data.month}/{data.year}"
+            contagem[chave] = contagem.get(chave, 0) + 1
+        except:
+            continue
+
+    print("\n--- PEDIDOS POR PERÍODO (MÊS/ANO) ---")
+    for periodo, total in contagem.items():
+        print(f"{periodo}: {total} pedidos")
+
+def catalogo_por_tipo():
+    catalogo = carregar_dados(CATALOGO_FILE)
+    tipos = {}
+
+    for item in catalogo:
+        tipo = item['tipo']
+        tipos[tipo] = tipos.get(tipo, 0) + 1
+
+    print("\n--- CATÁLOGO POR TIPO ---")
+    for t, total in tipos.items():
+        print(f"{t}: {total} itens")
+
+def catalogo_por_categoria():
+    catalogo = carregar_dados(CATALOGO_FILE)
+    categorias = {}
+
+    for item in catalogo:
+        cat = item['categoria']
+        categorias[cat] = categorias.get(cat, 0) + 1
+
+    print("\n--- CATÁLOGO POR CATEGORIA ---")
+    for c, total in categorias.items():
+        print(f"{c}: {total} itens")
+
+def remover_item():
+    catalogo = carregar_dados(CATALOGO_FILE)
+
+    if not catalogo:
+        print("Catálogo vazio.")
+        return
+
+    listar_catalogo()
+    id_item = input("\nID do item a remover: ").strip()
+
+    for i in catalogo:
+        if str(i['idItem']) == id_item:
+            if i['ativo'] == 'false':
+                print("Este item já está removido.")
+                return
+
+            i['ativo'] = 'false'
+
+            salvar_dados(
+                CATALOGO_FILE,
+                catalogo,
+                ['idItem', 'tipo', 'nome', 'categoria', 'preco', 'stock', 'ativo']
+            )
+            print("Item removido com sucesso (remoção lógica).")
+            return
+
+    print("Erro: ID não encontrado.")
+
+def eliminar_item_definitivo():
+    catalogo = carregar_dados(CATALOGO_FILE)
+    pedidos = carregar_dados(PEDIDOS_FILE)
+
+    listar_catalogo()
+    id_item = input("ID do item a eliminar definitivamente: ").strip()
+
+    # Verificar se item existe
+    item = next((i for i in catalogo if str(i['idItem']) == id_item), None)
+    if not item:
+        print("Item não encontrado.")
+        return
+
+    # Verificar se já foi usado em pedidos
+    for p in pedidos:
+        # se mais tarde tiveres linhas_pedido, validas aqui
+        pass
+
+    catalogo = [i for i in catalogo if str(i['idItem']) != id_item]
+
+    salvar_dados(
+        CATALOGO_FILE,
+        catalogo,
+        ['idItem', 'tipo', 'nome', 'categoria', 'preco', 'stock', 'ativo']
+    )
+
+    print("Item eliminado definitivamente do catálogo.")
+
+def listar_catalogo():
+    catalogo = carregar_dados(CATALOGO_FILE)
+
+    if not catalogo:
+        print("Catálogo vazio.")
+        return
+
+    print(f"\n{'ID':<5} {'Nome':<20} {'Preço':<10} {'Stock':<8} {'Ativo'}")
+    print("-" * 55)
+
+    for i in catalogo:
+        estado = "Sim" if i['ativo'] == 'true' else "Não"
+        print(f"{i['idItem']:<5} {i['nome']:<20} {i['preco']:<10} {i['stock']:<8} {estado}")
+
+def ativar_desativar_item():
+    catalogo = carregar_dados(CATALOGO_FILE)
+
+    if not catalogo:
+        print("Catálogo vazio.")
+        return
+
+    listar_catalogo()
+
+    id_item = input("\nID do item a ativar/desativar: ").strip()
+
+    for i in catalogo:
+        if str(i['idItem']) == id_item:
+            i['ativo'] = 'false' if i['ativo'] == 'true' else 'true'
+
+            salvar_dados(
+                CATALOGO_FILE,
+                catalogo,
+                ['idItem', 'tipo', 'nome', 'categoria', 'preco', 'stock', 'ativo']
+            )
+
+            print("Estado do item alterado com sucesso.")
+            return
+
+    print("Erro: ID não encontrado.")
+
+def adicionar_item_catalogo():
+    catalogo = carregar_dados(CATALOGO_FILE)
+    print("\n--- ADICIONAR NOVO PRODUTO / SERVIÇO ---")
+
+    nome = input("Nome: ").strip()
+
+    # impedir duplicados (case-insensitive)
+    for item in catalogo:
+        if item['nome'].strip().lower() == nome.lower():
+            print("Erro: já existe um produto/serviço com esse nome.")
+            return
+
+    tipo = input("Tipo (Material/Serviço): ").strip()
+    categoria = input("Categoria: ").strip()
+
+    try:
+        stock = int(input("Stock Inicial: "))
+        if stock < 0:
+            print("Erro: stock não pode ser negativo.")
+            return
+    except ValueError:
+        print("Erro: stock tem de ser numérico.")
+        return
+
+    preco = definir_preco_novo_item()
+
+    if catalogo:
+        novo_id = max(int(item['idItem']) for item in catalogo) + 1
+    else:
+        novo_id = 1
+
+    novo_item = {
+        'idItem': novo_id,
+        'tipo': tipo,
+        'nome': nome,
+        'categoria': categoria,
+        'preco': preco,
+        'stock': stock,
+        'ativo': "true"
+    }
+
+    catalogo.append(novo_item)
+    salvar_dados(
+        CATALOGO_FILE,
+        catalogo,
+        ['idItem', 'tipo', 'nome', 'categoria', 'preco', 'stock', 'ativo']
+    )
+
+    print(f"Produto/Serviço adicionado com sucesso! (ID: {novo_id})")
+
+
+def definir_preco_novo_item():
+    """
+    Pede e valida o preço do novo item (usado apenas na criação).
+    """
+    try:
+        preco = float(input("Preço Unitário: "))
+        if preco < 0:
+            print("Erro: preço não pode ser negativo.")
+            return definir_preco_novo_item()
+        return preco
+    except ValueError:
+        print("Erro: introduza um número válido.")
+        return definir_preco_novo_item()
+
+def atualizar_preco_item():
+    catalogo = carregar_dados(CATALOGO_FILE)
+    if not catalogo:
+        print("Catálogo vazio.")
+        return
+
+    listar_catalogo()
+    id_item = input("\nID do item para atualizar preço: ").strip()
+
+    for i in catalogo:
+        if str(i['idItem']) == id_item:
+            try:
+                novo_preco = float(input("Novo preço: "))
+                if novo_preco < 0:
+                    print("Erro: preço não pode ser negativo.")
+                    return
+                i['preco'] = novo_preco
+
+                salvar_dados(CATALOGO_FILE, catalogo, ['idItem', 'tipo', 'nome', 'categoria', 'preco', 'stock', 'ativo'])
+                print("Preço atualizado com sucesso.")
+                return
+            except ValueError:
+                print("Erro: introduza um valor numérico válido.")
+                return
+
+    print("Erro: ID não encontrado.")
+
+def atualizar_stock_item():
+    catalogo = carregar_dados(CATALOGO_FILE)
+    if not catalogo:
+        print("Catálogo vazio.")
+        return
+
+    listar_catalogo()
+    id_item = input("\nID do item para atualizar stock: ").strip()
+
+    for i in catalogo:
+        if str(i['idItem']) == id_item:
+            try:
+                novo_stock = int(input("Novo stock: "))
+                if novo_stock < 0:
+                    print("Erro: stock não pode ser negativo.")
+                    return
+                i['stock'] = novo_stock
+
+                salvar_dados(CATALOGO_FILE, catalogo, ['idItem', 'tipo', 'nome', 'categoria', 'preco', 'stock', 'ativo'])
+                print("Stock atualizado com sucesso.")
+                return
+            except ValueError:
+                print("Erro: introduza um valor numérico válido.")
+                return
+
+    print("Erro: ID não encontrado.")
+
+def atualizar_item():
+    catalogo = carregar_dados(CATALOGO_FILE)
+
+    if not catalogo:
+        print("Catálogo vazio.")
+        return
+
+    listar_catalogo()
+
+    id_item = input("\nID do item a atualizar: ").strip()
+
+    for i in catalogo:
+        if str(i['idItem']) == id_item:
+            try:
+                novo_preco = float(input("Novo preço: "))
+                novo_stock = int(input("Novo stock: "))
+
+                if novo_preco < 0 or novo_stock < 0:
+                    print("Erro: valores não podem ser negativos.")
+                    return
+
+                i['preco'] = novo_preco
+                i['stock'] = novo_stock
+
+                salvar_dados(
+                    CATALOGO_FILE,
+                    catalogo,
+                    ['idItem', 'tipo', 'nome', 'categoria', 'preco', 'stock', 'ativo']
+                )
+
+                print("Item atualizado com sucesso.")
+                return
+
+            except ValueError:
+                print("Erro: introduza valores numéricos válidos.")
+                return
+
+    print("Erro: ID não encontrado.")
+
 
 def mostrar_estatisticas_avancadas():
     pedidos = carregar_dados(PEDIDOS_FILE)
@@ -121,22 +859,38 @@ def mostrar_estatisticas_avancadas():
 
 def gerir_inventario():
     catalogo = carregar_dados(CATALOGO_FILE)
-    print("\n--- ADICIONAR NOVO ITEM ---")
+    print("\n--- ADICIONAR NOVO PRODUTO / SERVIÇO ---")
+
+    nome = input("Nome: ").strip()
+
+    # 🔎 Verificação de duplicados (case-insensitive)
+    for item in catalogo:
+        if item['nome'].strip().lower() == nome.lower():
+            print("Erro: já existe um produto/serviço com esse nome.")
+            return
+
     try:
         novo_item = {
             'idItem': len(catalogo) + 1,
             'tipo': input("Tipo (Material/Serviço): "),
-            'nome': input("Nome: "),
+            'nome': nome,
             'categoria': input("Categoria: "),
             'preco': float(input("Preço Unitário: ")),
             'stock': int(input("Stock Inicial: ")),
             'ativo': "true"
         }
+
         catalogo.append(novo_item)
-        salvar_dados(CATALOGO_FILE, catalogo, ['idItem', 'tipo', 'nome', 'categoria', 'preco', 'stock', 'ativo'])
-        print("Item adicionado com sucesso!")
+        salvar_dados(
+            CATALOGO_FILE,
+            catalogo,
+            ['idItem', 'tipo', 'nome', 'categoria', 'preco', 'stock', 'ativo']
+        )
+
+        print("Produto/Serviço adicionado com sucesso!")
+
     except ValueError:
-        print("Erro: Preço e Stock devem ser números!")
+        print("Erro: preço e stock devem ser valores numéricos.")
 
 def listar_pedidos_geral():
     pedidos = carregar_dados(PEDIDOS_FILE)
@@ -194,20 +948,21 @@ def fazer_pedido(cliente):
             try:
                 qtd = int(input(f"Quantidade de {item['nome']}: "))
                 if qtd <= int(item['stock']):
-                    item['stock'] = str(int(item['stock']) - qtd)
-                    total += (float(item['preco']) * qtd)
+                    total += float(item['preco']) * qtd
                     print(f"Adicionado: {qtd}x {item['nome']}")
-                else: print("Stock insuficiente!")
-            except ValueError: print("Insira um número.")
-        else: print("Item não disponível.")
+                else:
+                    print("Stock insuficiente!")
+            except ValueError:
+                print("Insira um número.")
+
 
     if total > 0:
         pedidos = carregar_dados(PEDIDOS_FILE)
         id_p = len(pedidos) + 1
         novo_p = {
             'idPedido': id_p, 'cliente': cliente, 'dataHora': datetime.now().strftime("%d/%m/%Y %H:%M"),
-            'estado': 'aprovada', 'total': total, 'origem': 'Loja Central',
-            'destino': input("Morada de Destino: "), 'zona': zona, 'estafeta': estafetas[zona]
+            'estado': 'pendente', 'total': total, 'origem': 'Loja Central',
+            'destino': input("Morada de Destino: "), 'zona': zona, 'estafeta': ''
         }
         pedidos.append(novo_p)
         salvar_dados(PEDIDOS_FILE, pedidos, ['idPedido', 'cliente', 'dataHora', 'estado', 'total', 'origem', 'destino', 'zona', 'estafeta'])
@@ -255,30 +1010,192 @@ def menu_estafeta():
     print("\nIdentificação (N/C/S):")
     zona_ref = input().upper()
     estafeta_nome = f"Estafeta_{'Norte' if zona_ref=='N' else 'Centro' if zona_ref=='C' else 'Sul'}"
+
     while True:
         print(f"\n--- TERMINAL: {estafeta_nome} ---")
-        print("1. Minhas Entregas Pendentes")
-        print("2. Atualizar Estado")
+        print("1. Ver pedidos atribuídos")
+        print("2. Iniciar distribuição")
+        print("3. Concluir pedido")
         print("0. Voltar")
-        op = input("Opção: ")
+
+        op = input("Opção: ").strip()
+
         if op == '1':
-            pedidos = [p for p in carregar_dados(PEDIDOS_FILE) if p['estafeta'] == estafeta_nome and p['estado'] not in ['entregue', 'falhada']]
-            for p in pedidos: print(f"ID: {p['idPedido']} | Destino: {p['destino']} | Total: {p['total']}€")
-        elif op == '2': atualizar_tracking(estafeta_nome)
-        elif op == '0': break
+            listar_pedidos_estafeta(estafeta_nome)
+        elif op == '2':
+            iniciar_distribuicao(estafeta_nome)
+        elif op == '3':
+            concluir_pedido(estafeta_nome)
+        elif op == '0':
+            break
+        else:
+            print("Opção inválida.")
+
 
 def atualizar_tracking(estafeta):
-    id_p = input("ID do Pedido: ")
-    novo_estado = input("Novo Estado (em distribuição / entregue / falhada): ")
-    loc = input("Localização: ")
-    eventos = carregar_dados(EVENTOS_FILE)
-    eventos.append({'idEvento': len(eventos)+1, 'idPedido': id_p, 'estafeta': estafeta, 'estado': novo_estado, 'timestamp': datetime.now().strftime("%H:%M:%S"), 'localizacao': loc, 'descricao': "Manutenção"})
-    salvar_dados(EVENTOS_FILE, eventos, ['idEvento', 'idPedido', 'estafeta', 'estado', 'timestamp', 'localizacao', 'descricao'])
     pedidos = carregar_dados(PEDIDOS_FILE)
-    for p in pedidos:
-        if p['idPedido'] == id_p: p['estado'] = novo_estado
-    salvar_dados(PEDIDOS_FILE, pedidos, ['idPedido', 'cliente', 'dataHora', 'estado', 'total', 'origem', 'destino', 'zona', 'estafeta'])
-    print("Estado atualizado!")
+
+    id_p = input("ID do Pedido: ").strip()
+    pedido = next((p for p in pedidos if p['idPedido'] == id_p), None)
+
+    if not pedido:
+        print("Pedido não encontrado.")
+        return
+
+    if pedido['estafeta'] != estafeta:
+        print("Este pedido não está atribuído a si.")
+        return
+
+    estado_atual = pedido['estado']
+
+    print(f"Estado atual: {estado_atual}")
+    print("Próximo estado possível:")
+
+    if estado_atual == 'atribuida':
+        print("1. em distribuição")
+        print("2. em execução")
+    elif estado_atual in ['em distribuição', 'em execução']:
+        print("1. entregue")
+        print("2. falhada")
+    else:
+        print("Não é possível alterar este pedido.")
+        return
+
+    escolha = input("Escolha: ").strip()
+
+    if estado_atual == 'atribuida':
+        novo_estado = 'em distribuição' if escolha == '1' else 'em execução'
+    else:
+        novo_estado = 'entregue' if escolha == '1' else 'falhada'
+
+    if not transicao_valida(estado_atual, novo_estado):
+        print(f"Transição inválida: {estado_atual} → {novo_estado}")
+        return
+
+    localizacao = input("Localização atual: ")
+
+    pedido['estado'] = novo_estado
+
+    salvar_dados(
+        PEDIDOS_FILE,
+        pedidos,
+        ['idPedido', 'cliente', 'dataHora', 'estado', 'total',
+         'origem', 'destino', 'zona', 'estafeta']
+    )
+
+    registar_evento(
+        pedido['idPedido'],
+        novo_estado,
+        f"Estado alterado pelo estafeta {estafeta}",
+        localizacao
+    )
+
+    print(f"Pedido #{pedido['idPedido']} atualizado para '{novo_estado}'.")
+
+def listar_pedidos_estafeta(estafeta):
+    pedidos = carregar_dados(PEDIDOS_FILE)
+
+    meus = [
+        p for p in pedidos
+        if p['estafeta'] == estafeta and p['estado'] in ['atribuida', 'em distribuição']
+    ]
+
+    if not meus:
+        print("Não existem pedidos atribuídos.")
+        return
+
+    print("\n--- MEUS PEDIDOS ---")
+    for p in meus:
+        print(f"ID:{p['idPedido']} | Cliente:{p['cliente']} | Estado:{p['estado']}")
+
+def iniciar_distribuicao(estafeta):
+    pedidos = carregar_dados(PEDIDOS_FILE)
+
+    listar_pedidos_estafeta(estafeta)
+
+    id_p = input("\nID do pedido a iniciar distribuição: ").strip()
+    pedido = next((p for p in pedidos if p['idPedido'] == id_p), None)
+
+    if not pedido:
+        print("Pedido não encontrado.")
+        return
+
+    if pedido['estafeta'] != estafeta:
+        print("Este pedido não está atribuído a si.")
+        return
+
+    if pedido['estado'] != 'atribuida':
+        print("O pedido não está no estado 'atribuida'.")
+        return
+
+    if not transicao_valida('atribuida', 'em distribuição'):
+        print("Transição inválida.")
+        return
+
+    pedido['estado'] = 'em distribuição'
+
+    salvar_dados(
+        PEDIDOS_FILE,
+        pedidos,
+        ['idPedido', 'cliente', 'dataHora', 'estado', 'total',
+         'origem', 'destino', 'zona', 'estafeta']
+    )
+
+    registar_evento(
+        pedido['idPedido'],
+        'em distribuição',
+        f"Distribuição iniciada pelo estafeta {estafeta}"
+    )
+
+    print("Distribuição iniciada com sucesso.")
+
+def concluir_pedido(estafeta):
+    pedidos = carregar_dados(PEDIDOS_FILE)
+
+    listar_pedidos_estafeta(estafeta)
+
+    id_p = input("\nID do pedido a concluir: ").strip()
+    pedido = next((p for p in pedidos if p['idPedido'] == id_p), None)
+
+    if not pedido:
+        print("Pedido não encontrado.")
+        return
+
+    if pedido['estafeta'] != estafeta:
+        print("Este pedido não está atribuído a si.")
+        return
+
+    if pedido['estado'] != 'em distribuição':
+        print("O pedido não está em distribuição.")
+        return
+
+    print("1. Concluída")
+    print("2. Falhada")
+    escolha = input("Escolha: ").strip()
+
+    novo_estado = 'entregue' if escolha == '1' else 'falhada'
+
+    if not transicao_valida('em distribuição', novo_estado):
+        print("Transição inválida.")
+        return
+
+    pedido['estado'] = novo_estado
+
+    salvar_dados(
+        PEDIDOS_FILE,
+        pedidos,
+        ['idPedido', 'cliente', 'dataHora', 'estado', 'total',
+         'origem', 'destino', 'zona', 'estafeta']
+    )
+
+    registar_evento(
+        pedido['idPedido'],
+        novo_estado,
+        f"Pedido {novo_estado} pelo estafeta {estafeta}"
+    )
+
+    print(f"Pedido #{pedido['idPedido']} {novo_estado} com sucesso.")
+
 
 # =================================================================
 # MAIN
